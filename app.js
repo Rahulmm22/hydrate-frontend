@@ -7,9 +7,21 @@ const listEl = $('list');
 
 async function registerSW(){
   if (!('serviceWorker' in navigator)) return alert('Service worker not supported');
-  const reg = await navigator.serviceWorker.register('/sw.js');
-  console.log('SW registered', reg);
-  return reg;
+
+  // Register service worker using a relative path so it works both on localhost
+  // and on GitHub project pages (which live under /<repo>/)
+  const swPath = (location.pathname.endsWith('/') ? '' : '.') + '/sw.js';
+  // simpler and safe: use 'sw.js' (relative to current document)
+  // const swPath = 'sw.js';
+
+  try {
+    const reg = await navigator.serviceWorker.register('sw.js');
+    console.log('SW registered', reg);
+    return reg;
+  } catch(err) {
+    console.error('SW register failed', err);
+    alert('Service worker register failed: ' + err.message);
+  }
 }
 
 function urlBase64ToUint8Array(base64String) {
