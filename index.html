@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hydrate — Water Reminder</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="theme-color" content="#071a2b" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden>
+          <path fill="currentColor" d="M12 2C8.13 6.14 6 8.61 6 11.5A6 6 0 0 0 18 11.5C18 8.61 15.87 6.14 12 2Z"></path>
+          <path fill="currentColor" d="M6 13.5c0 3.59 4.03 6.5 6 6.5s6-2.91 6-6.5V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-6.5z" opacity=".9"></path>
+        </svg>
+        <div>
+          <h1>Hydrate</h1>
+          <small>Drink water, it's cheaper than therapy</small>
+        </div>
+      </div>
+      <div class="status">Permission: <strong id="permState">unknown</strong></div>
+    </header>
+
+    <main>
+      <div class="grid">
+        <section class="card controls">
+          <h2>Get started</h2>
+          <p class="muted">Allow notifications, subscribe and add reminders. Notifications will arrive even if the app is closed.</p>
+          <div class="btnrow">
+            <button class="btn primary" id="btnRequest">Allow Notifications</button>
+            <button class="btn" id="btnSubscribe">Subscribe</button>
+            <button class="btn ghost" id="btnSendTest">Send Test</button>
+          </div>
+        </section>
+
+        <section class="card add">
+          <h2>New reminder</h2>
+          <div class="formrow">
+            <label>Time
+              <input id="timeInput" type="time" />
+            </label>
+            <label>Repeat (minutes)
+              <input id="repeatMin" type="number" min="0" value="0" />
+            </label>
+            <label>Until (optional)
+              <input id="until" type="time" />
+            </label>
+          </div>
+          <div class="btnrow">
+            <button class="btn primary" id="btnAdd">Add Reminder</button>
+          </div>
+        </section>
+
+        <section class="card listcard">
+          <h2>Reminders</h2>
+          <ul id="list" class="reminders"></ul>
+          <div class="muted small">Reminders are stored on the server and sent at scheduled times.</div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="foot">
+      <div>Backend: <a target="_blank" href="https://hydrate-backend.fly.dev">hydrate-backend.fly.dev</a></div>
+      <small class="muted">Sound for notifications depends on device settings — browsers don’t allow custom alarm sounds from service workers.</small>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
