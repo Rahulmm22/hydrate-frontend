@@ -1,120 +1,254 @@
-// app.js - client logic to register SW, subscribe push and talk to backend
-const API_BASE = 'https://hydrate-backend.fly.dev'; // <- your backend
+// app.js — Frontend logic for Hydrate PWA + Push
+// 1) Set your backend base URL here (update if different)
+const API_BASE = 'https://hydrate-backend.fly.dev'; // << change if needed
 
-const $ = id => document.getElementById(id);
-const permState = $('permState');
-const listEl = $('list');
+// DOM references
+const listEl = document.getElementById('list');
+const timeInput = document.getElementById('timeInput');
+const repeatMinInput = document.getElementById('repeatMin');
+const untilInput = document.getElementById('until');
 
-async function registerSW(){
-  if (!('serviceWorker' in navigator)) return alert('Service worker not supported');
+const btnRequest = document.getElementById('btnRequest');
+const btnSubscribe = document.getElementById('btnSubscribe');
+const btnSendTest = document.getElementById('btnSendTest');
+const btnAdd = document.getElementById('btnAdd');
 
-  // Register service worker using a relative path so it works both on localhost
-  // and on GitHub project pages (which live under /<repo>/)
-  const swPath = (location.pathname.endsWith('/') ? '' : '.') + '/sw.js';
-  // simpler and safe: use 'sw.js' (relative to current document)
-  // const swPath = 'sw.js';
+const permStateEl = document.getElementById('permState');
+
+// --- reminders state (local fallback) ---
+let reminders = JSON.parse(localStorage.getItem('water-reminders') || '[]');
+
+// --- small helpers ---
+function saveLocalReminders() {
+  localStorage.setItem('water-reminders', JSON.stringify(reminders));
+}
+function formatTimeHHMM(t) {
+  if (!t) return '';
+  return t;
+}
+function showStatusPermission() {
+  permStateEl.textContent = (Notification?.permission || 'unknown');
+}
+
+// --- ui render ---
+function render() {
+  listEl.innerHTML = '';
+  reminders.sort((a,b) => (a.time || '').localeCompare(b.time || ''));
+  reminders.forEach((r, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<div>
+      <div style="font-weight:600">${r.time || '--:--'}</div>
+      <small>${r.repeatMin > 0 ? `Every ${r.repeatMin} min` : 'One time' } ${r.until ? 'until ' + r.until : ''}</small>
+    </div>
+    <div>
+      <button data-index="${i}" class="del">Delete</button>
+    </div>`;
+    listEl.appendChild(li);
+  });
+  // delete buttons
+  document.querySelectorAll('.del').forEach(btn => btn.addEventListener('click', (e)=>{
+    const i = +e.currentTarget.dataset.index;
+    reminders.splice(i,1); saveLocalReminders(); render();
+    // try remove on server (best-effort)
+    if (reminders[i] && reminders[i].id) {
+      fetch(`${API_BASE}/reminders/${reminders[i].id}`, { method: 'DELETE' }).catch(()=>{});
+    }
+  }));
+}
+
+// --- service worker (robust) ---
+async function registerSW() {
+  if (!('serviceWorker' in navigator)) {
+    console.warn('Service worker not supported.');
+    window._swReady = false;
+    return null;
+  }
 
   try {
+    // relative path so it works on GitHub Pages + local
     const reg = await navigator.serviceWorker.register('sw.js');
-    console.log('SW registered', reg);
+    console.info('Service worker registered:', reg);
+
+    // wait for it to become controller (short timeout)
+    if (!navigator.serviceWorker.controller) {
+      await new Promise((resolve) => {
+        let resolved = false;
+        const t = setTimeout(() => { if (!resolved) { resolved = true; resolve(); } }, 3000);
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!resolved) { resolved = true; clearTimeout(t); resolve(); }
+        });
+      });
+    }
+    window._swReady = !!navigator.serviceWorker.controller;
+    console.info('Service worker controlling this page:', window._swReady);
     return reg;
-  } catch(err) {
-    console.error('SW register failed', err);
-    alert('Service worker register failed: ' + err.message);
+  } catch (err) {
+    console.error('SW register failed:', err);
+    // retry once
+    try {
+      await new Promise(r => setTimeout(r, 500));
+      const reg2 = await navigator.serviceWorker.register('sw.js');
+      window._swReady = !!navigator.serviceWorker.controller;
+      return reg2;
+    } catch (err2) {
+      console.error('SW retry failed:', err2);
+      window._swReady = false;
+      return null;
+    }
   }
 }
 
+// --- permissions UI handler ---
+btnRequest.addEventListener('click', async () => {
+  if (!('Notification' in window)) return alert('Notifications not supported in this browser.');
+  const p = await Notification.requestPermission();
+  showStatusPermission();
+  alert('Permission: ' + p);
+});
+
+// --- push helpers ---
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const raw = atob(base64);
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
-  return out;
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i=0;i<rawData.length;++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
 }
 
-async function updatePermUI(){
-  permState.textContent = Notification.permission;
+async function getVapidPublicKey() {
+  const res = await fetch(`${API_BASE}/vapidPublicKey`);
+  if (!res.ok) throw new Error('Failed to load VAPID key');
+  const txt = await res.text();
+  return txt.trim();
 }
 
-// request permission
-$('btnRequest').addEventListener('click', async ()=>{
-  const p = await Notification.requestPermission();
-  updatePermUI();
-  if (p !== 'granted') return alert('Please allow notifications');
-  alert('Permission granted');
-});
-
-// subscribe to push
-$('btnSubscribe').addEventListener('click', async ()=>{
+// subscribe flow (button)
+btnSubscribe.addEventListener('click', async () => {
+  // ensure SW ready
+  if (!window._swReady) {
+    await registerSW();
+    if (!window._swReady) return alert('Service worker not ready. Please reload and try again.');
+  }
   if (Notification.permission !== 'granted') return alert('Allow notifications first');
-  const reg = await registerSW();
-  // get VAPID public key from server
-  const res = await fetch(API_BASE + '/vapidPublicKey');
-  if (!res.ok) return alert('Failed to get VAPID key');
-  const vapidKey = await res.text();
-  const sub = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(vapidKey)
-  });
-  // send subscription to server
-  const r = await fetch(API_BASE + '/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(sub) });
-  const data = await r.json();
-  if (!data || !data.success) return alert('Subscribe failed');
-  alert('Subscribed on server');
+
+  try {
+    const vapid = await getVapidPublicKey();
+    const reg = await registerSW();
+    if (!reg) throw new Error('No service worker registration');
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapid)
+    });
+
+    // send to server
+    const res = await fetch(`${API_BASE}/subscribe`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(sub)
+    });
+    if (!res.ok) throw new Error('Failed to send subscription to server');
+    alert('Subscribed to push (saved on server)');
+  } catch (err) {
+    console.error(err);
+    alert('Subscription failed: ' + (err.message||err));
+  }
 });
 
-// send test push (server triggers)
-$('btnSendTest').addEventListener('click', async ()=>{
-  const payload = { title:'Hydrate — test', body:'Time to drink water 💧', url:'/' };
-  const r = await fetch(API_BASE + '/sendNotification', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ payload })});
-  const d = await r.json();
-  alert('Server response: ' + JSON.stringify(d));
+// send test push (button)
+btnSendTest.addEventListener('click', async () => {
+  if (!window._swReady) {
+    await registerSW();
+    if (!window._swReady) return alert('Service worker not ready. Please reload and try again.');
+  }
+  try {
+    const payload = { title:'Hydrate — test', body:'Time to drink water 💧', url:'/' };
+    const res = await fetch(`${API_BASE}/sendNotification`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ payload })
+    });
+    const data = await res.json().catch(()=>null);
+    alert('Server response: ' + (data ? JSON.stringify(data) : 'no-json'));
+  } catch (err) {
+    console.error(err);
+    alert('Send failed: ' + (err.message||err));
+  }
 });
 
-// add reminder
-$('btnAdd').addEventListener('click', async ()=>{
-  const t = $('timeInput').value;
-  if (!t) return alert('Choose a time');
-  const repeat = Number($('repeatMin').value || 0);
-  const until = $('until').value || null;
-  // grab current subscription from service worker
-  const reg = await navigator.serviceWorker.getRegistration();
-  if (!reg) return alert('Service worker not registered.');
-  const sub = await reg.pushManager.getSubscription();
-  if (!sub) return alert('Not subscribed to push yet.');
-  const body = {
-    subscription: sub,
-    time: t,
-    timezoneOffsetMinutes: new Date().getTimezoneOffset() * -1, // server expects offset minutes (positive if ahead of UTC)
-    repeatEveryMinutes: repeat,
-    repeatUntil: until || null
-  };
-  const r = await fetch(API_BASE + '/addReminder', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const d = await r.json();
-  if (!d || !d.success) return alert('Failed to add reminder');
-  alert('Reminder added');
-  renderReminders(); // attempt show
-});
-
-// show reminders from server (reads /subs and displays count)
-async function renderReminders(){
-  try{
-    const r = await fetch(API_BASE + '/subs');
-    const d = await r.json();
-    listEl.innerHTML = '';
-    for (const u of d.users || []) {
-      const li = document.createElement('li');
-      li.textContent = `id: ${u.id} — reminders: ${u.reminders}`;
-      listEl.appendChild(li);
+// --- add reminder (UI) ---
+btnAdd.addEventListener('click', async () => {
+  if (!window._swReady) {
+    // try register, but allow creating reminders even if SW not active (we will save to server)
+    await registerSW();
+    if (!window._swReady) {
+      // warn but continue: we'll still POST reminder to server (server will send push at scheduled time)
+      console.warn('SW not ready, creating reminder anyway.');
     }
-  }catch(e){
-    listEl.innerHTML = '<li>Error loading</li>';
+  }
+
+  const time = timeInput.value;
+  const repeatMin = parseInt(repeatMinInput.value || '0', 10) || 0;
+  const until = untilInput.value || '';
+
+  if (!time) return alert('Choose time');
+
+  const newReminder = { time, repeatMin, until };
+  // optimistic local save
+  reminders.push(newReminder);
+  saveLocalReminders();
+  render();
+
+  // send to server (best-effort)
+  try {
+    const res = await fetch(`${API_BASE}/reminders`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(newReminder)
+    });
+    if (!res.ok) {
+      console.warn('Server responded not ok for reminders', res.status);
+      return;
+    }
+    const saved = await res.json().catch(()=>null);
+    // if server returns id, update local copy
+    if (saved && saved.id) {
+      // attach id to the last reminder (best-effort match)
+      const idx = reminders.length - 1;
+      reminders[idx].id = saved.id;
+      saveLocalReminders();
+      render();
+    }
+    alert('Reminder added (saved on server)');
+  } catch (err) {
+    console.error('Failed to save reminder to server:', err);
+    alert('Reminder saved locally (server unreachable). It will not trigger push until backend receives it.');
+  }
+});
+
+// load reminders from server (initial)
+async function loadRemoteReminders() {
+  try {
+    const res = await fetch(`${API_BASE}/reminders`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data) && data.length) {
+      reminders = data;
+      saveLocalReminders();
+      render();
+    }
+  } catch (err) {
+    console.warn('Could not load remote reminders:', err);
   }
 }
 
-window.addEventListener('load', async () => {
-  updatePermUI();
-  try { await registerSW(); } catch(e){ console.warn(e); }
-  renderReminders();
-});
+// --- boot sequence ---
+(async function boot() {
+  showStatusPermission();
+  render();
+  // try to register sw (best-effort)
+  await registerSW();
+  // try load remote reminders
+  await loadRemoteReminders();
+})();
