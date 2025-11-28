@@ -23,6 +23,61 @@ function updatePermissionText() {
 }
 updatePermissionText();
 
+// ---------------------------
+// Simple load/render helpers (fix for "loadReminders is not defined")
+// ---------------------------
+function saveLocal(reminders) {
+  try {
+    localStorage.setItem('hydrate-reminders', JSON.stringify(reminders || []));
+  } catch (e) { /* ignore */ }
+}
+
+function renderReminders(reminders) {
+  const listEl = document.getElementById('list');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  if (!reminders || !reminders.length) {
+    const li = document.createElement('li');
+    li.className = 'muted';
+    li.textContent = 'No reminders';
+    listEl.appendChild(li);
+    return;
+  }
+  reminders.forEach(r => {
+    const li = document.createElement('li');
+    li.className = 'reminder';
+    li.innerHTML = `
+      <div><strong>${r.time || '—'}</strong><div class="muted">Every ${r.repeatEveryMinutes || 0} min</div></div>
+      <div><button class="delete" data-id="${r.id || ''}">Delete</button></div>
+    `;
+    listEl.appendChild(li);
+  });
+}
+
+async function loadReminders() {
+  // try server first (non-blocking)
+  try {
+    const res = await fetch(`${API_BASE}/subs`);
+    if (res.ok) {
+      // server returns list of users; UI is simple so we just show counts locally
+      // keep local reminders in sync if needed (here we prefer local storage view)
+      // but if API provides reminders endpoint later, implement that.
+      // fallthrough to load local data for display
+    }
+  } catch (e) {
+    // server unreachable — that's fine, we show local copy
+    console.warn('Server /subs fetch failed', e);
+  }
+
+  // show whatever is in localStorage so UI doesn't break
+  let arr = [];
+  try {
+    const raw = localStorage.getItem('hydrate-reminders');
+    if (raw) arr = JSON.parse(raw);
+  } catch (e) { arr = []; }
+
+  renderReminders(arr);
+}
 
 // ---------------------------
 // SERVICE WORKER
