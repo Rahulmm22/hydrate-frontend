@@ -107,70 +107,76 @@ btnSendTest.addEventListener("click", async () => {
 });
 
 
-// ---------------------------
-// ADD REMINDER
-// ---------------------------
-btnAdd.addEventListener("click", async () => {
-  const t = $("timeInput").value;
-  const repeat = Number($("repeatMin").value || 0);
-  const until = $("until").value;
+// ----- Add reminder (sends subscription + correct payload to backend) -----
+async function addReminder() {
+  const time = timeInput.value;
+  const repeat = Number(repeatMin.value || 0);
+  const until = untilInput.value || null;
 
-  if (!t) return alert("Choose a time");
+  if (!time) return alert('Choose a time first');
+
+  // Ensure service worker registration
+  let reg = null;
+  try {
+    reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) {
+      reg = await navigator.serviceWorker.register('./sw.js');
+    }
+  } catch (err) {
+    console.warn('SW registration check failed', err);
+  }
+
+  if (!reg) {
+    return alert('Service worker not available. Please reload the page.');
+  }
+
+  // Get current push subscription
+  let subscription = null;
+  try {
+    subscription = await reg.pushManager.getSubscription();
+  } catch (err) {
+    console.error('Failed to get subscription', err);
+  }
+
+  if (!subscription) {
+    return alert('You must subscribe first.');
+  }
+
+  // Build payload exactly the way backend expects
+  const payload = {
+    subscription: subscription.toJSON ? subscription.toJSON() : subscription,
+    time,
+    timezoneOffsetMinutes: new Date().getTimezoneOffset() * -1,
+    repeatEveryMinutes: Number(repeat || 0),
+    repeatUntil: until || null
+  };
 
   try {
-    const payload = { time: t, repeat, until };
-
-    const res = await fetch(`${API_BASE}/newReminder`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+    const res = await fetch(`${API_BASE}/addReminder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
-    alert("Reminder saved!");
+    if (!res.ok) {
+      const text = await res.text().catch(()=> '');
+      throw new Error('Server returned ' + res.status + ' ' + text);
+    }
 
-    loadReminders();
-
+    const data = await res.json().catch(()=>null);
+    alert('Reminder saved on server!');
+    return;
   } catch (err) {
-    alert("Saved locally (server unreachable).");
-    console.error(err);
-  }
-});
-
-
-// ---------------------------
-// LOAD REMINDERS FROM SERVER
-// ---------------------------
-async function loadReminders() {
-  try {
-    const res = await fetch(`${API_BASE}/list`);
-    const data = await res.json();
-
-    renderReminders(data.reminders || []);
-
-  } catch (err) {
-    console.error(err);
+    console.warn('Failed to save reminder on server', err);
+    alert('Saved locally (server unreachable).');
   }
 }
 
-
-// ---------------------------
-// RENDER REMINDERS
-// ---------------------------
-function renderReminders(items) {
-  list.innerHTML = "";
-
-  items.forEach((r) => {
-    const li = document.createElement("li");
-    li.innerHTML = `
-      <strong>${r.time}</strong>
-      <small>${r.repeat ? "Every " + r.repeat + " min" : "Once"}</small>
-      <button class="delete" data-id="${r.id}">Delete</button>
-    `;
-    list.appendChild(li);
-  });
+// wire the button
+if (btnAdd) {
+  btnAdd.removeEventListener && btnAdd.removeEventListener('click', addReminder);
+  btnAdd.addEventListener('click', addReminder);
 }
-
 
 // ---------------------------
 // DELETE REMINDER
