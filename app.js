@@ -12,6 +12,9 @@ const btnRequest = $("btnRequest");
 const btnSubscribe = $("btnSubscribe");
 const btnSendTest = $("btnSendTest");
 const btnAdd = $("btnAdd");
+const timeInput = $("timeInput");
+const repeatMin = $("repeatMin");
+const untilInput = $("until");
 const list = $("list");
 
 
