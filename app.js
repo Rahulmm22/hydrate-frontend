@@ -1,23 +1,24 @@
 // app.js - client logic for service worker, push subscription, and UI
-// Adjust IDs if your HTML uses different ones.
+// IMPORTANT: set API_BASE to your backend
+const API_BASE = 'https://hydrate-backend.fly.dev'; // <-- update if different
 
-const API_BASE = 'https://hydrate-backend.fly.dev'; // <-- set your backend here
+// helper: get element by id (null-safe)
+const $ = (id) => document.getElementById(id) || null;
 
-// UI elements - change IDs if needed
-const $ = (id) => document.getElementById(id);
-const statusEl = $('status') || { textContent: '' };
-const requestPermBtn = $('requestPerm');
-const subscribeBtn = $('subscribeBtn') || $('subscribe');
-const sendTestBtn = $('sendTestBtn') || $('sendTest');
-const timeInput = $('timeInput') || $('time');              // new reminder time
-const repeatInput = $('repeatInput') || $('repeat');       // repeat minutes
-const untilInput = $('untilInput') || $('until');          // until time
-const addBtn = $('addBtn') || $('addReminder');
-const remindersList = $('reminders') || $('remindersList');
+// safe addEventListener (logs when element not found)
+function safeAddListener(el, evt, fn) {
+  if (!el) {
+    console.warn(`[app] UI element not found for listener: ${evt}`);
+    return;
+  }
+  el.addEventListener(evt, fn);
+}
 
-function setStatus(s) {
-  try { statusEl.textContent = s; } catch(e){ console.log('status:', s); }
-  console.log('[app] ' + s);
+// small status helper (uses element with id="status" if present)
+const statusEl = $('status');
+function setStatus(msg) {
+  console.log('[app] ' + msg);
+  if (statusEl) statusEl.textContent = msg;
 }
 
 // Register service worker (relative path)
@@ -37,7 +38,6 @@ async function registerSW() {
   }
 }
 
-// Request notification permission
 async function requestPermission() {
   if (!('Notification' in window)) {
     setStatus('Notifications not supported.');
@@ -48,7 +48,6 @@ async function requestPermission() {
   return p;
 }
 
-// fetch VAPID public key from backend
 async function getVapidPublicKey() {
   const res = await fetch(API_BASE + '/vapidPublicKey');
   if (!res.ok) throw new Error('Failed to load VAPID key');
@@ -57,7 +56,6 @@ async function getVapidPublicKey() {
 }
 
 function urlBase64ToUint8Array(base64String) {
-  // standard helper
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
   const rawData = atob(base64);
@@ -66,18 +64,30 @@ function urlBase64ToUint8Array(base64String) {
   return out;
 }
 
-// Subscribe and send subscription to server
+async function sendSubscriptionToServer(subscription) {
+  const res = await fetch(API_BASE + '/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subscription)
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(()=> '');
+    throw new Error('Failed to send subscription to server: ' + res.status + ' ' + txt);
+  }
+  const data = await res.json().catch(()=> ({}));
+  console.log('Server subscribe result:', data);
+  return data;
+}
+
 async function subscribeToPush() {
   try {
     const reg = await navigator.serviceWorker.getRegistration();
     if (!reg) { setStatus('No service worker registration found.'); return; }
 
-    // If already subscribed, return
     const existing = await reg.pushManager.getSubscription();
     if (existing) {
       setStatus('Already subscribed.');
-      // optionally re-send to server to ensure stored
-      await sendSubscriptionToServer(existing);
+      await sendSubscriptionToServer(existing).catch(()=>{});
       return existing;
     }
 
@@ -90,29 +100,12 @@ async function subscribeToPush() {
     setStatus('Subscribed and saved on server.');
     return sub;
   } catch (err) {
-    setStatus('Subscribe failed: ' + err.message);
+    setStatus('Subscribe failed: ' + (err.message || err));
     console.error(err);
     throw err;
   }
 }
 
-// Send subscription object to backend /subscribe endpoint
-async function sendSubscriptionToServer(subscription) {
-  const res = await fetch(API_BASE + '/subscribe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(subscription)
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    throw new Error('Failed to send subscription to server: ' + res.status + ' ' + txt);
-  }
-  const data = await res.json().catch(() => ({}));
-  console.log('Server subscribe result:', data);
-  return data;
-}
-
-// Send a test push (ask the backend to trigger a push)
 async function sendTestPush() {
   try {
     const payload = { title: 'Hydrate — test', body: 'Time to drink water 💧', url: location.origin };
@@ -129,112 +122,106 @@ async function sendTestPush() {
   }
 }
 
-// Helpers: UI wiring
-function wireUI() {
-  if (requestPermBtn) requestPermBtn.addEventListener('click', async () => {
-    const p = await requestPermission();
-    if (p === 'granted') setStatus('Permission granted');
-    else setStatus('Permission: ' + p);
+async function addReminderToServer(time, repeat, until) {
+  const payload = { time, repeat: Number(repeat)||0, until: until || '' };
+  const res = await fetch(API_BASE + '/addReminder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   });
-
-  if (subscribeBtn) subscribeBtn.addEventListener('click', async () => {
-    try {
-      const p = Notification.permission;
-      if (p !== 'granted') {
-        alert('Allow notifications first');
-        return;
-      }
-      await subscribeToPush();
-    } catch (err) {
-      alert('Subscribe failed: ' + (err.message || err));
-    }
-  });
-
-  if (sendTestBtn) sendTestBtn.addEventListener('click', async () => {
-    await sendTestPush();
-  });
-
-  // Add reminder (simple backend call) - adapt endpoint name to your server (/reminder or /addReminder)
-  if (addBtn) addBtn.addEventListener('click', async () => {
-    try {
-      const time = (timeInput && timeInput.value) ? timeInput.value : '';
-      const repeat = (repeatInput && repeatInput.value) ? Number(repeatInput.value) : 0;
-      const until = (untilInput && untilInput.value) ? untilInput.value : '';
-
-      if (!time) return alert('Choose time');
-
-      const payload = { time, repeat, until }; // your backend must accept this shape
-      const res = await fetch(API_BASE + '/addReminder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(()=>'');
-        throw new Error('Server error: ' + res.status + ' ' + txt);
-      }
-      setStatus('Reminder added');
-      // refresh reminders list if server provides an endpoint
-      loadReminders();
-    } catch (err) {
-      alert('Add reminder failed: ' + err.message);
-    }
-  });
+  if (!res.ok) {
+    const txt = await res.text().catch(()=>'');
+    throw new Error('Add reminder failed: ' + res.status + ' ' + txt);
+  }
+  return res.json().catch(()=>({}));
 }
 
-// Load reminders list (if your backend provides /reminders endpoint)
 async function loadReminders() {
   try {
     const res = await fetch(API_BASE + '/reminders');
     if (!res.ok) return;
     const data = await res.json();
-    if (!remindersList) return;
-    remindersList.innerHTML = '';
-    (data || []).forEach((r) => {
-      const div = document.createElement('div');
-      div.className = 'reminder';
-      div.textContent = `${r.time} — every ${r.repeat || 0} min`;
-      remindersList.appendChild(div);
-    });
+    const remList = $('reminders') || $('remindersList');
+    if (!remList) return;
+    remList.innerHTML = '';
+    if (Array.isArray(data)) {
+      data.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'reminder';
+        div.textContent = `${r.time || '?'} — every ${r.repeat || 0} min`;
+        remList.appendChild(div);
+      });
+    } else if (data && data.reminders) {
+      (data.reminders).forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'reminder';
+        div.textContent = `${r.time || '?'} — every ${r.repeat || 0} min`;
+        remList.appendChild(div);
+      });
+    }
   } catch (err) {
     console.warn('Could not load reminders', err);
   }
 }
 
-// Auto-run on page load
-(async function init() {
-  setStatus('Initializing...');
+// Wire UI safely (ids may differ in user HTML)
+function wireUI() {
+  const requestPermBtn = $('requestPerm') || $('requestPermission') || $('request-notification-permission');
+  const subscribeBtn = $('subscribeBtn') || $('subscribe') || $('subscribe-to-push');
+  const sendTestBtn = $('sendTestBtn') || $('sendTest') || $('send-test');
+  const timeInput = $('timeInput') || $('time') || $('reminder-time');
+  const repeatInput = $('repeatInput') || $('repeat') || $('repeat-minutes');
+  const untilInput = $('untilInput') || $('until') || $('until-time');
+  const addBtn = $('addBtn') || $('addReminder') || $('add-reminder');
+  // safe listeners with console logs for missing elements
+  safeAddListener(requestPermBtn, 'click', async () => {
+    await requestPermission();
+  });
+  safeAddListener(subscribeBtn, 'click', async () => {
+    if (Notification.permission !== 'granted') return alert('Allow notifications first');
+    try { await subscribeToPush(); } catch(e){ alert('Subscribe failed: '+(e.message||e)); }
+  });
+  safeAddListener(sendTestBtn, 'click', async () => {
+    await sendTestPush();
+  });
+  safeAddListener(addBtn, 'click', async () => {
+    const t = timeInput ? timeInput.value : '';
+    const r = repeatInput ? repeatInput.value : '0';
+    const u = untilInput ? untilInput.value : '';
+    if (!t) return alert('Choose time');
+    try {
+      await addReminderToServer(t, r, u);
+      setStatus('Reminder added');
+      await loadReminders();
+    } catch (err) {
+      alert('Add reminder failed: ' + (err.message || err));
+    }
+  });
+}
+
+// init - run only after DOM ready
+async function initApp() {
+  setStatus('Initializing app...');
   wireUI();
-
-  // register SW
   const reg = await registerSW();
-  if (!reg) {
-    setStatus('Service worker not registered.');
-    return;
-  }
-
-  // show current permission
+  if (!reg) { setStatus('Service worker not registered.'); return; }
   setStatus('Notification permission: ' + Notification.permission);
-
-  // If already subscribed on this client, re-send subscription to server (safe)
+  // re-send any existing subscription
   try {
     const swReg = await navigator.serviceWorker.getRegistration();
     if (swReg) {
       const existing = await swReg.pushManager.getSubscription();
       if (existing) {
-        try {
-          await sendSubscriptionToServer(existing);
-          setStatus('Existing subscription sent to server.');
-        } catch (e) {
-          console.warn('Failed to re-send existing subscription', e);
-        }
+        await sendSubscriptionToServer(existing).catch(()=>{});
+        setStatus('Existing subscription re-sent to server.');
       }
     }
-  } catch (e) {
-    console.warn('Subscription check failed', e);
-  }
+  } catch (e) { console.warn('Subscription check failed', e); }
+  await loadReminders();
+}
 
-  // Try to load existing reminders (optional)
-  loadReminders();
-
-})();
+// Wait for DOMContentLoaded to ensure elements exist
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('[app] DOMContentLoaded — starting init');
+  initApp().catch(err => console.error('[app] init error', err));
+});
