@@ -204,7 +204,7 @@ async function addReminder() {
   const payload = {
     subscription: subscription.toJSON ? subscription.toJSON() : subscription,
     time,
-    timezoneOffsetMinutes: new Date().getTimezoneOffset() * -1,
+    timezoneOffsetMinutes: new Date().getTimezoneOffset(),
     repeatEveryMinutes: Number(repeat || 0),
     repeatUntil: until || null
   };
