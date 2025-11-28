@@ -1,51 +1,61 @@
-// sw.js
+// sw.js - service worker for Hydrate
+// Minimal reliable push handler showing notifications.
 
-// Basic service worker for push + notifications
-self.addEventListener('install', (event) => {
-  console.log('[SW] install');
-  // Activate straight away
-  self.skipWaiting();
+self.addEventListener('install', (evt) => {
+  self.skipWaiting(); // activate immediately
 });
 
-self.addEventListener('activate', (event) => {
-  console.log('[SW] activate');
-  event.waitUntil(self.clients.claim());
+self.addEventListener('activate', (evt) => {
+  clients.claim();
 });
 
-// Handle incoming push messages
+// Listen for push events
 self.addEventListener('push', (event) => {
-  console.log('[SW] push event', event);
-  let payload = {};
+  // Try to parse JSON payload if present
+  let data = {};
   try {
-    payload = event.data ? event.data.json() : {};
+    if (event.data) data = event.data.json();
   } catch (e) {
-    payload = { title: 'Hydrate', body: event.data ? event.data.text() : 'Time to drink water' };
+    // if not JSON, try text
+    try { data = { body: event.data.text() }; } catch(e) { data = {}; }
   }
 
-  const title = payload.title || 'Hydrate — Drink Water';
+  // Defaults
+  const title = data.title || 'Hydrate Reminder';
+  const body = data.body || 'Time to drink water 💧';
+  const url = data.url || '/';
+  const tag = data.tag || 'hydrate-reminder';
+  const icon = data.icon || '/icon-192.png';
+  const badge = data.badge || '/icon-192.png';
+
+  // Notification options
   const options = {
-    body: payload.body || 'Time to drink water 💧',
-    icon: payload.icon || './icon.png',
-    badge: payload.badge || './badge.png',
-    data: payload.data || { url: payload.url || '/' },
-    renotify: true
+    body,
+    icon,
+    badge,
+    tag,
+    data: { url },
+    renotify: false
+    // Note: custom sound is not supported in standard web notifications.
   };
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Click on notification: focus or open app
-self.addEventListener('notificationclick', (event) => {
+// Handle clicks on notifications
+self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  const urlToOpen = event.notification.data && event.notification.data.url ? event.notification.data.url : '/';
+  const url = (event.notification.data && event.notification.data.url) || '/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // If a window/tab is already open, focus it
       for (const client of clientList) {
-        if (client.url === urlToOpen && 'focus' in client) {
+        if (client.url === url && 'focus' in client) {
           return client.focus();
         }
       }
-      return clients.openWindow(urlToOpen);
+      // otherwise open a new one
+      if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });
