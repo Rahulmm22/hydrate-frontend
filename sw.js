@@ -1,52 +1,51 @@
 // sw.js
 
+// Basic service worker for push + notifications
 self.addEventListener('install', (event) => {
-  console.log("SW installed");
+  console.log('[SW] install');
+  // Activate straight away
+  self.skipWaiting();
 });
 
-self.addEventListener('activate', async (event) => {
-  console.log("SW activated");
-
-  event.waitUntil((async () => {
-    const sub = await self.registration.pushManager.getSubscription();
-    if (!sub) {
-      console.log("No subscription in SW");
-      return;
-    }
-
-    console.log("Sending subscription from SW...");
-    try {
-      const res = await fetch('https://hydrate-backend.fly.dev/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub)
-      });
-      console.log("SW subscribe server response:", await res.text());
-    } catch (err) {
-      console.error("SW subscribe failed:", err);
-    }
-  })());
+self.addEventListener('activate', (event) => {
+  console.log('[SW] activate');
+  event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener("push", (event) => {
-  const data = event.data?.json() || {};
-  event.waitUntil(
-    self.registration.showNotification(data.title || "Hydrate", {
-      body: data.body || "",
-      icon: "icon.png",
-      data: { url: data.url || "/" }
-    })
-  );
+// Handle incoming push messages
+self.addEventListener('push', (event) => {
+  console.log('[SW] push event', event);
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (e) {
+    payload = { title: 'Hydrate', body: event.data ? event.data.text() : 'Time to drink water' };
+  }
+
+  const title = payload.title || 'Hydrate — Drink Water';
+  const options = {
+    body: payload.body || 'Time to drink water 💧',
+    icon: payload.icon || './icon.png',
+    badge: payload.badge || './badge.png',
+    data: payload.data || { url: payload.url || '/' },
+    renotify: true
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
-self.addEventListener("notificationclick", (event) => {
+// Click on notification: focus or open app
+self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const urlToOpen = event.notification.data && event.notification.data.url ? event.notification.data.url : '/';
   event.waitUntil(
-    clients.matchAll({ type: "window" }).then((clientList) => {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if ('focus' in client) return client.focus();
+        if (client.url === urlToOpen && 'focus' in client) {
+          return client.focus();
+        }
       }
-      if (clients.openWindow) return clients.openWindow(event.notification.data.url);
+      return clients.openWindow(urlToOpen);
     })
   );
 });
