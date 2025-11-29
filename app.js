@@ -1,10 +1,13 @@
+// app.js - Hydrate frontend (minimal, no reminders list shown)
+// Works with your provided server.js, index.html and sw.js
+
 // ---------------------------
 // CONFIG
 // ---------------------------
 const API_BASE = "https://hydrate-backend.fly.dev";
 
 // convenience selector
-const $ = (id) => document.getElementById(id);
+const $ = id => document.getElementById(id);
 
 // elements
 const permState = $("permState");
@@ -12,202 +15,199 @@ const btnRequest = $("btnRequest");
 const btnSubscribe = $("btnSubscribe");
 const btnSendTest = $("btnSendTest");
 const btnAdd = $("btnAdd");
-const list = $("list");
 
+// inputs
+const timeInput = $("timeInput");
+const repeatMin = $("repeatMin");
+const untilInput = $("until");
 
 // ---------------------------
-// UPDATE STATUS
+// UTIL: permission display
 // ---------------------------
 function updatePermissionText() {
-  permState.textContent = Notification.permission;
+  if (permState) permState.textContent = Notification.permission;
 }
 updatePermissionText();
 
-
 // ---------------------------
-// SERVICE WORKER
+// SERVICE WORKER REGISTER
 // ---------------------------
 async function registerSW() {
-  if (!("serviceWorker" in navigator)) {
-    alert("Service worker not supported");
+  if (!('serviceWorker' in navigator)) {
+    console.warn('Service workers not supported in this browser.');
     return;
   }
 
   try {
-    const reg = await navigator.serviceWorker.register("/hydrate-frontend/sw.js");
-    console.log("SW registered", reg.scope);
+    // register relative path (matches your index/sw placement)
+    const reg = await navigator.serviceWorker.register('./sw.js');
+    console.log('Service worker registered:', reg.scope);
   } catch (err) {
-    console.error("SW registration failed:", err);
+    console.error('Service worker registration failed:', err);
   }
 }
 registerSW();
 
+// ---------------------------
+// small localStorage helpers
+// ---------------------------
+function saveUserId(id) {
+  try { localStorage.setItem('hydrateUserId', id); } catch (e) {}
+}
+function getUserId() {
+  try { return localStorage.getItem('hydrateUserId'); } catch (e) { return null; }
+}
+function clearUserId() {
+  try { localStorage.removeItem('hydrateUserId'); } catch (e) {}
+}
+
+// ---------------------------
+// VAPID helper
+// ---------------------------
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
+  return out;
+}
 
 // ---------------------------
 // REQUEST NOTIFICATION PERMISSION
 // ---------------------------
-btnRequest.addEventListener("click", async () => {
-  const perm = await Notification.requestPermission();
-  updatePermissionText();
-  alert(`Permission: ${perm}`);
-});
-
-
-// ---------------------------
-// SUBSCRIBE USER
-// ---------------------------
-btnSubscribe.addEventListener("click", async () => {
-  try {
-    // load VAPID key
-    const vapidRes = await fetch(`${API_BASE}/vapidPublicKey`);
-    const vapidKey = await vapidRes.text();
-    const vapidUint8 = urlBase64ToUint8Array(vapidKey);
-
-    const reg = await navigator.serviceWorker.ready;
-
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: vapidUint8
-    });
-
-    // send subscription to backend
-    const res = await fetch(`${API_BASE}/subscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sub)
-    });
-
-    const data = await res.json();
-    alert("Subscribed successfully!");
-    console.log("Server response:", data);
-
-  } catch (err) {
-    alert("Subscription failed: " + err.message);
-    console.error(err);
-  }
-});
-
-
-// ---------------------------
-// SEND TEST PUSH
-// ---------------------------
-btnSendTest.addEventListener("click", async () => {
-  try {
-    const res = await fetch(`${API_BASE}/sendNotification`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}"
-    });
-
-    const data = await res.json();
-    alert("Test push sent!");
-  } catch (err) {
-    alert("Failed: " + err.message);
-  }
-});
-
-
-// ----- Add reminder (sends subscription + correct payload to backend) -----
-async function addReminder() {
-  const time = timeInput.value;
-  const repeat = Number(repeatMin.value || 0);
-  const until = untilInput.value || null;
-
-  if (!time) return alert('Choose a time first');
-
-  // Ensure service worker registration
-  let reg = null;
-  try {
-    reg = await navigator.serviceWorker.getRegistration();
-    if (!reg) {
-      reg = await navigator.serviceWorker.register('./sw.js');
+if (btnRequest) {
+  btnRequest.addEventListener('click', async () => {
+    try {
+      const p = await Notification.requestPermission();
+      updatePermissionText();
+      alert(`Permission: ${p}`);
+    } catch (err) {
+      console.error('Permission request failed', err);
+      alert('Permission request failed: ' + (err && err.message));
     }
-  } catch (err) {
-    console.warn('SW registration check failed', err);
-  }
+  });
+}
 
-  if (!reg) {
-    return alert('Service worker not available. Please reload the page.');
-  }
+// ---------------------------
+// SUBSCRIBE USER (push)
+// ---------------------------
+if (btnSubscribe) {
+  btnSubscribe.addEventListener('click', async () => {
+    try {
+      // fetch VAPID key
+      const vapidRes = await fetch(`${API_BASE}/vapidPublicKey`);
+      if (!vapidRes.ok) throw new Error('Failed to load VAPID key: ' + vapidRes.status);
+      const vapidKey = await vapidRes.text();
+      const vapidUint8 = urlBase64ToUint8Array(vapidKey);
 
-  // Get current push subscription
-  let subscription = null;
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidUint8
+      });
+
+      // send to backend
+      const res = await fetch(`${API_BASE}/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub)
+      });
+
+      if (!res.ok) throw new Error('Subscribe failed: ' + res.status);
+      const data = await res.json();
+
+      if (data && data.userId) {
+        saveUserId(data.userId);
+        console.log('Saved userId:', data.userId);
+      }
+
+      alert('Subscribed successfully!');
+    } catch (err) {
+      console.error('Subscribe error', err);
+      alert('Subscription failed: ' + (err && err.message));
+    }
+  });
+}
+
+// ---------------------------
+// SEND TEST PUSH (server will send push to all subs)
+// ---------------------------
+if (btnSendTest) {
+  btnSendTest.addEventListener('click', async () => {
+    try {
+      const res = await fetch(`${API_BASE}/sendNotification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}) // server will use default payload if none provided
+      });
+      if (!res.ok) throw new Error('Server returned ' + res.status);
+      const json = await res.json();
+      console.log('sendNotification result', json);
+      alert('Test push requested. Check your device notification area.');
+    } catch (err) {
+      console.error('send test error', err);
+      alert('Failed to request test push: ' + (err && err.message));
+    }
+  });
+}
+
+// ---------------------------
+// ADD REMINDER
+// ---------------------------
+async function addReminder() {
   try {
-    subscription = await reg.pushManager.getSubscription();
-  } catch (err) {
-    console.error('Failed to get subscription', err);
-  }
+    const time = timeInput && timeInput.value;
+    const repeat = repeatMin && Number(repeatMin.value || 0);
+    const until = untilInput && untilInput.value || null;
 
-  if (!subscription) {
-    return alert('You must subscribe first.');
-  }
+    if (!time) return alert('Please choose a time for the reminder.');
 
-  // Build payload exactly the way backend expects
-  const payload = {
-    subscription: subscription.toJSON ? subscription.toJSON() : subscription,
-    time,
-    timezoneOffsetMinutes: new Date().getTimezoneOffset(),
-    repeatEveryMinutes: Number(repeat || 0),
-    repeatUntil: until || null
-  };
+    // ensure service worker ready
+    const reg = await navigator.serviceWorker.ready;
+    if (!reg) return alert('Service worker not ready. Reload and try again.');
 
-  try {
+    // get existing push subscription
+    const subscription = await reg.pushManager.getSubscription();
+    if (!subscription) return alert('You must subscribe before adding a reminder.');
+
+    // payload expected by your server
+    const payload = {
+      subscription: subscription.toJSON ? subscription.toJSON() : subscription,
+      time,
+      timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+      repeatEveryMinutes: Number(repeat || 0),
+      repeatUntil: until || null
+    };
+
     const res = await fetch(`${API_BASE}/addReminder`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(()=> '');
-      throw new Error('Server returned ' + res.status + ' ' + text);
+      const text = await res.text().catch(()=>'');
+      throw new Error('Server error: ' + res.status + ' ' + text);
     }
 
-    const data = await res.json().catch(()=>null);
-    alert('Reminder saved on server!');
-    return;
+    // success - server saved the reminder. we intentionally do not show list.
+    alert('Reminder saved on server.');
+    console.log('addReminder response', await res.json().catch(()=>null));
   } catch (err) {
-    console.warn('Failed to save reminder on server', err);
-    alert('Saved locally (server unreachable).');
+    console.error('addReminder error', err);
+    alert('Failed to save reminder: ' + (err && err.message));
   }
 }
 
-// wire the button
 if (btnAdd) {
-  btnAdd.removeEventListener && btnAdd.removeEventListener('click', addReminder);
   btnAdd.addEventListener('click', addReminder);
 }
 
 // ---------------------------
-// DELETE REMINDER
+// STARTUP
 // ---------------------------
-list.addEventListener("click", async (e) => {
-  if (!e.target.matches("button.delete")) return;
-
-  const id = e.target.dataset.id;
-
-  await fetch(`${API_BASE}/deleteReminder`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id })
-  });
-
-  loadReminders();
+window.addEventListener('load', () => {
+  updatePermissionText();
+  // nothing else required at load (no reminders list)
 });
-
-
-// ---------------------------
-// HELPERS
-// ---------------------------
-function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  const arr = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; ++i) arr[i] = raw.charCodeAt(i);
-  return arr;
-}
-
-
-// start loading list
-loadReminders();
