@@ -1,5 +1,3 @@
-// Hydrate frontend (FINAL CLEAN VERSION)
-
 // ---------------------------
 // CONFIG
 // ---------------------------
@@ -16,17 +14,12 @@ const btnSendTest = $("btnSendTest");
 const btnAdd = $("btnAdd");
 const list = $("list");
 
-// input fields (match your HTML)
-const timeInput = $("timeInput") || document.querySelector("input[name=time]");
-const repeatMin = $("repeatMin") || document.querySelector("input[name=repeat]");
-const untilInput = $("until") || document.querySelector("input[name=until]") || null;
-
 
 // ---------------------------
-// PERMISSION DISPLAY
+// UPDATE STATUS
 // ---------------------------
 function updatePermissionText() {
-  if (permState) permState.textContent = Notification.permission;
+  permState.textContent = Notification.permission;
 }
 updatePermissionText();
 
@@ -35,12 +28,14 @@ updatePermissionText();
 // SERVICE WORKER
 // ---------------------------
 async function registerSW() {
-  if (!("serviceWorker" in navigator)) return;
+  if (!("serviceWorker" in navigator)) {
+    alert("Service worker not supported");
+    return;
+  }
 
   try {
-    // Your SW lives here on GitHub Pages
     const reg = await navigator.serviceWorker.register("/hydrate-frontend/sw.js");
-    console.log("SW registered:", reg.scope);
+    console.log("SW registered", reg.scope);
   } catch (err) {
     console.error("SW registration failed:", err);
   }
@@ -49,249 +44,156 @@ registerSW();
 
 
 // ---------------------------
-// LOCAL STORAGE HELPERS
-// ---------------------------
-function saveUserId(id) {
-  try { localStorage.setItem("hydrateUserId", id); } catch (e) {}
-}
-function getUserId() {
-  try { return localStorage.getItem("hydrateUserId"); } catch (e) { return null; }
-}
-function clearUserId() {
-  try { localStorage.removeItem("hydrateUserId"); } catch (e) {}
-}
-
-
-// ---------------------------
-// RENDER REMINDERS
-// ---------------------------
-function renderReminders(reminders) {
-  if (!list) return;
-  list.innerHTML = "";
-
-  const container = document.createElement("div");
-  container.className = "reminders-container";
-
-  if (!reminders || reminders.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "reminders-empty";
-    empty.textContent = "No reminders";
-    container.appendChild(empty);
-
-    const note = document.createElement("div");
-    note.className = "reminders-note";
-    note.textContent = "Reminders are stored on the server and sent automatically.";
-    container.appendChild(note);
-
-    list.appendChild(container);
-    return;
-  }
-
-  const ul = document.createElement("ul");
-  ul.className = "reminders-list";
-
-  reminders.forEach((r) => {
-    const li = document.createElement("li");
-    li.className = "reminder-item";
-    li.dataset.id = r.id || "";
-
-    const left = document.createElement("div");
-    left.className = "reminder-left";
-    left.innerHTML = `
-      <strong>${r.time || "-"}</strong>
-      <div class="reminder-meta">
-        ${r.repeatEveryMinutes || 0} min repeat
-        ${r.repeatUntil ? " until " + r.repeatUntil : ""}
-      </div>
-    `;
-
-    const right = document.createElement("div");
-    right.className = "reminder-right";
-
-    const del = document.createElement("button");
-    del.className = "delete";
-    del.dataset.id = r.id || "";
-    del.textContent = "Delete";
-
-    right.appendChild(del);
-    li.appendChild(left);
-    li.appendChild(right);
-    ul.appendChild(li);
-  });
-
-  container.appendChild(ul);
-  list.appendChild(container);
-}
-
-
-// ---------------------------
-// LOAD REMINDERS FOR USER
-// ---------------------------
-async function loadReminders() {
-  const userId = getUserId();
-  if (!userId) {
-    renderReminders([]);
-    return;
-  }
-
-  // call backend endpoint (you will add this in server.js)
-  try {
-    const res = await fetch(`${API_BASE}/user/${encodeURIComponent(userId)}/reminders`);
-    if (res.ok) {
-      const json = await res.json();
-      renderReminders(json.reminders || []);
-      return;
-    }
-  } catch (err) {
-    console.warn("Could not load /user/:id/reminders", err);
-  }
-
-  // fallback: show empty
-  renderReminders([]);
-}
-
-
-// ---------------------------
 // REQUEST NOTIFICATION PERMISSION
 // ---------------------------
-if (btnRequest) {
-  btnRequest.addEventListener("click", async () => {
-    const perm = await Notification.requestPermission();
-    updatePermissionText();
-    alert(`Permission: ${perm}`);
-  });
-}
+btnRequest.addEventListener("click", async () => {
+  const perm = await Notification.requestPermission();
+  updatePermissionText();
+  alert(`Permission: ${perm}`);
+});
 
 
 // ---------------------------
-// SUBSCRIBE
+// SUBSCRIBE USER
 // ---------------------------
-if (btnSubscribe) {
-  btnSubscribe.addEventListener("click", async () => {
-    try {
-      // load public key
-      const vapidRes = await fetch(`${API_BASE}/vapidPublicKey`);
-      const vapidKey = await vapidRes.text();
-      const vapidUint8 = urlBase64ToUint8Array(vapidKey);
+btnSubscribe.addEventListener("click", async () => {
+  try {
+    // load VAPID key
+    const vapidRes = await fetch(`${API_BASE}/vapidPublicKey`);
+    const vapidKey = await vapidRes.text();
+    const vapidUint8 = urlBase64ToUint8Array(vapidKey);
 
-      const reg = await navigator.serviceWorker.ready;
+    const reg = await navigator.serviceWorker.ready;
 
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: vapidUint8
-      });
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: vapidUint8
+    });
 
-      // send to backend
-      const res = await fetch(`${API_BASE}/subscribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sub)
-      });
+    // send subscription to backend
+    const res = await fetch(`${API_BASE}/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sub)
+    });
 
-      const data = await res.json();
-      if (data.userId) saveUserId(data.userId);
+    const data = await res.json();
+    alert("Subscribed successfully!");
+    console.log("Server response:", data);
 
-      alert("Subscribed!");
-      await loadReminders();
-
-    } catch (err) {
-      alert("Subscription failed: " + err.message);
-      console.error(err);
-    }
-  });
-}
+  } catch (err) {
+    alert("Subscription failed: " + err.message);
+    console.error(err);
+  }
+});
 
 
 // ---------------------------
-// TEST PUSH
+// SEND TEST PUSH
 // ---------------------------
-if (btnSendTest) {
-  btnSendTest.addEventListener("click", async () => {
-    try {
-      await fetch(`${API_BASE}/sendNotification`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}"
-      });
-      alert("Test push sent!");
-    } catch (err) {
-      alert("Failed: " + err.message);
-    }
-  });
-}
+btnSendTest.addEventListener("click", async () => {
+  try {
+    const res = await fetch(`${API_BASE}/sendNotification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+
+    const data = await res.json();
+    alert("Test push sent!");
+  } catch (err) {
+    alert("Failed: " + err.message);
+  }
+});
 
 
-// ---------------------------
-// ADD REMINDER
-// ---------------------------
+// ----- Add reminder (sends subscription + correct payload to backend) -----
 async function addReminder() {
   const time = timeInput.value;
   const repeat = Number(repeatMin.value || 0);
-  const until = untilInput ? untilInput.value : null;
+  const until = untilInput.value || null;
 
-  if (!time) return alert("Choose a time first");
+  if (!time) return alert('Choose a time first');
 
-  // ensure SW ready
-  let reg = await navigator.serviceWorker.getRegistration();
-  if (!reg) {
-    reg = await navigator.serviceWorker.register("/hydrate-frontend/sw.js");
+  // Ensure service worker registration
+  let reg = null;
+  try {
+    reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) {
+      reg = await navigator.serviceWorker.register('./sw.js');
+    }
+  } catch (err) {
+    console.warn('SW registration check failed', err);
   }
 
-  const subscription = await reg.pushManager.getSubscription();
-  if (!subscription) return alert("Subscribe first.");
+  if (!reg) {
+    return alert('Service worker not available. Please reload the page.');
+  }
 
+  // Get current push subscription
+  let subscription = null;
+  try {
+    subscription = await reg.pushManager.getSubscription();
+  } catch (err) {
+    console.error('Failed to get subscription', err);
+  }
+
+  if (!subscription) {
+    return alert('You must subscribe first.');
+  }
+
+  // Build payload exactly the way backend expects
   const payload = {
-    subscription: subscription.toJSON(),
+    subscription: subscription.toJSON ? subscription.toJSON() : subscription,
     time,
     timezoneOffsetMinutes: new Date().getTimezoneOffset() * -1,
-    repeatEveryMinutes: repeat,
+    repeatEveryMinutes: Number(repeat || 0),
     repeatUntil: until || null
   };
 
   try {
     const res = await fetch(`${API_BASE}/addReminder`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
-    if (data.reminders) renderReminders(data.reminders);
-    else await loadReminders();
+    if (!res.ok) {
+      const text = await res.text().catch(()=> '');
+      throw new Error('Server returned ' + res.status + ' ' + text);
+    }
 
-    alert("Reminder saved!");
+    const data = await res.json().catch(()=>null);
+    alert('Reminder saved on server!');
+    return;
   } catch (err) {
-    alert("Could not save reminder: " + err.message);
+    console.warn('Failed to save reminder on server', err);
+    alert('Saved locally (server unreachable).');
   }
 }
 
+// wire the button
 if (btnAdd) {
-  btnAdd.addEventListener("click", addReminder);
+  btnAdd.removeEventListener && btnAdd.removeEventListener('click', addReminder);
+  btnAdd.addEventListener('click', addReminder);
 }
-
 
 // ---------------------------
 // DELETE REMINDER
 // ---------------------------
-if (list) {
-  list.addEventListener("click", async (e) => {
-    if (!e.target.matches("button.delete")) return;
+list.addEventListener("click", async (e) => {
+  if (!e.target.matches("button.delete")) return;
 
-    const id = e.target.dataset.id;
+  const id = e.target.dataset.id;
 
-    try {
-      await fetch(`${API_BASE}/deleteReminder`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id })
-      });
-    } catch (err) {
-      console.warn("Delete failed", err);
-    }
-
-    await loadReminders();
+  await fetch(`${API_BASE}/deleteReminder`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id })
   });
-}
+
+  loadReminders();
+});
 
 
 // ---------------------------
@@ -307,10 +209,5 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 
-// ---------------------------
-// ON LOAD
-// ---------------------------
-window.addEventListener("load", () => {
-  updatePermissionText();
-  loadReminders();
-});
+// start loading list
+loadReminders();
