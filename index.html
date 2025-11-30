@@ -24,41 +24,52 @@
           <small>Drink water, it's cheaper than therapy</small>
         </div>
       </div>
+
+      <!-- permission state (must keep id "permState") -->
       <div class="status">Permission: <strong id="permState">unknown</strong></div>
     </header>
 
     <main>
       <div class="grid">
+        <!-- Controls -->
         <section class="card controls">
           <h2>Get started</h2>
           <p class="muted">Allow notifications, subscribe and add reminders. Notifications will arrive even if the app is closed.</p>
           <div class="btnrow">
+            <!-- must keep ids -->
             <button class="btn primary" id="btnRequest">Allow Notifications</button>
             <button class="btn" id="btnSubscribe">Subscribe</button>
             <button class="btn ghost" id="btnSendTest">Send Test</button>
           </div>
         </section>
 
+        <!-- Add reminder -->
         <section class="card add">
           <h2>New reminder</h2>
           <div class="formrow">
             <label>Time
+              <!-- must keep id "timeInput" -->
               <input id="timeInput" type="time" />
             </label>
             <label>Repeat (minutes)
+              <!-- must keep id "repeatMin" -->
               <input id="repeatMin" type="number" min="0" value="0" />
             </label>
             <label>Until (optional)
+              <!-- must keep id "until" -->
               <input id="until" type="time" />
             </label>
           </div>
           <div class="btnrow">
+            <!-- must keep id "btnAdd" -->
             <button class="btn primary" id="btnAdd">Add Reminder</button>
           </div>
         </section>
 
+        <!-- Reminders (you asked to not show the list — this keeps the original empty container) -->
         <section class="card listcard">
           <h2>Reminders</h2>
+          <!-- must keep id "list" (app.js uses this) -->
           <ul id="list" class="reminders"></ul>
           <div class="muted small">Reminders are stored on the server and sent at scheduled times.</div>
         </section>
