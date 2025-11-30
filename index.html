@@ -1,435 +1,76 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hydrate - Daily Water Tracker</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-        
-        /* Custom Animation Utilities */
-        .wave-anim {
-            animation: wave 2s infinite linear;
-        }
-        @keyframes wave {
-            0% { transform: translateX(0); }
-            100% { transform: translateX(-50%); }
-        }
-        .fade-in { animation: fadeIn 0.3s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        
-        .slide-up { animation: slideUp 0.3s ease-out forwards; }
-        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-        /* Hide scrollbar for clean modal */
-        .no-scroll { overflow: hidden; }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hydrate — Water Reminder</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/png" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <meta name="theme-color" content="#00CBA5">
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="theme-color" content="#071a2b" />
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex items-center justify-center p-4 selection:bg-blue-200">
-
-    <!-- Audio Element -->
-    <audio id="notificationSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
-
-    <!-- Celebration Overlay -->
-    <div id="celebrationOverlay" class="fixed inset-0 pointer-events-none z-50 flex items-center justify-center hidden">
-        <div class="animate-bounce bg-blue-500 text-white px-8 py-4 rounded-full shadow-xl text-xl font-bold flex items-center gap-2 slide-up">
-            <i data-lucide="trophy" class="w-6 h-6"></i> Goal Reached! Great Job!
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden>
+          <path fill="currentColor" d="M12 2C8.13 6.14 6 8.61 6 11.5A6 6 0 0 0 18 11.5C18 8.61 15.87 6.14 12 2Z"></path>
+          <path fill="currentColor" d="M6 13.5c0 3.59 4.03 6.5 6 6.5s6-2.91 6-6.5V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-6.5z" opacity=".9"></path>
+        </svg>
+        <div>
+          <h1>Hydrate</h1>
+          <small>Drink water, it's cheaper than therapy</small>
         </div>
-    </div>
+      </div>
+      <div class="status">Permission: <strong id="permState">unknown</strong></div>
+    </header>
 
-    <!-- Reminder Modal -->
-    <div id="reminderModal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm hidden fade-in">
-        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center slide-up">
-            <div class="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
-                <i data-lucide="glass-water" class="w-10 h-10 animate-pulse"></i>
-            </div>
-            <h2 class="text-2xl font-bold text-slate-800 mb-2">Thirsty?</h2>
-            <p class="text-slate-500 mb-6">It's time for a glass of water. Stay hydrated to stay focused!</p>
-            <div class="flex gap-3 justify-center">
-                <button onclick="closeReminder()" class="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
-                    Later
-                </button>
-                <button onclick="addWater(250)" class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow-md transition-transform active:scale-95 font-medium">
-                    I drank 250ml
-                </button>
-            </div>
-        </div>
-    </div>
+    <main>
+      <div class="grid">
+        <section class="card controls">
+          <h2>Get started</h2>
+          <p class="muted">Allow notifications, subscribe and add reminders. Notifications will arrive even if the app is closed.</p>
+          <div class="btnrow">
+            <button class="btn primary" id="btnRequest">Allow Notifications</button>
+            <button class="btn" id="btnSubscribe">Subscribe</button>
+            <button class="btn ghost" id="btnSendTest">Send Test</button>
+          </div>
+        </section>
 
-    <!-- Settings Modal -->
-    <div id="settingsModal" class="fixed inset-0 bg-black/20 z-40 flex items-end sm:items-center justify-center sm:p-4 backdrop-blur-sm hidden fade-in">
-        <div class="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md p-6 slide-up">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-bold flex items-center gap-2">
-                    <i data-lucide="settings" class="w-5 h-5"></i> Settings
-                </h3>
-                <button onclick="toggleSettings()" class="p-2 hover:bg-slate-100 rounded-full">
-                    <i data-lucide="x" class="w-6 h-6"></i>
-                </button>
-            </div>
+        <section class="card add">
+          <h2>New reminder</h2>
+          <div class="formrow">
+            <label>Time
+              <input id="timeInput" type="time" />
+            </label>
+            <label>Repeat (minutes)
+              <input id="repeatMin" type="number" min="0" value="0" />
+            </label>
+            <label>Until (optional)
+              <input id="until" type="time" />
+            </label>
+          </div>
+          <div class="btnrow">
+            <button class="btn primary" id="btnAdd">Add Reminder</button>
+          </div>
+        </section>
 
-            <div class="space-y-6">
-                <div>
-                    <label class="block text-sm font-medium text-slate-600 mb-2">Daily Goal (ml)</label>
-                    <div class="flex items-center gap-4">
-                        <input type="range" min="1000" max="4000" step="100" id="goalInput" class="w-full accent-blue-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
-                        <span id="goalValue" class="font-mono font-bold w-16 text-right">2500</span>
-                    </div>
-                </div>
+        <section class="card listcard">
+          <h2>Reminders</h2>
+          <ul id="list" class="reminders"></ul>
+          <div class="muted small">Reminders are stored on the server and sent at scheduled times.</div>
+        </section>
+      </div>
+    </main>
 
-                <div>
-                    <label class="block text-sm font-medium text-slate-600 mb-2">Reminder Interval (minutes)</label>
-                    <div class="flex items-center gap-4">
-                        <input type="range" min="15" max="120" step="15" id="intervalInput" class="w-full accent-blue-500 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
-                        <span id="intervalValue" class="font-mono font-bold w-16 text-right">60</span>
-                    </div>
-                </div>
+    <footer class="foot">
+      <div>Backend: <a target="_blank" href="https://hydrate-backend.fly.dev">hydrate-backend.fly.dev</a></div>
+      <small class="muted">Sound for notifications depends on device settings — browsers don’t allow custom alarm sounds from service workers.</small>
+    </footer>
+  </div>
 
-                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
-                    <span class="text-sm font-medium text-slate-700">Notification Sound</span>
-                    <button id="soundToggleBtn" onclick="toggleSound()" class="p-2 rounded-full transition-colors bg-blue-100 text-blue-600">
-                        <i data-lucide="volume-2" class="w-5 h-5"></i>
-                    </button>
-                </div>
-
-                <div class="pt-2">
-                    <button onclick="resetDay()" class="w-full py-3 border border-red-200 text-red-500 rounded-xl hover:bg-red-50 font-medium transition-colors flex items-center justify-center gap-2">
-                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Reset Today's Progress
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Main App Card -->
-    <div class="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 relative z-0">
-        
-        <!-- Header -->
-        <div class="p-6 flex justify-between items-center bg-gradient-to-br from-blue-500 to-cyan-400 text-white">
-            <div>
-                <h1 class="text-2xl font-bold flex items-center gap-2">
-                    <i data-lucide="droplets" class="w-6 h-6"></i> Hydrate
-                </h1>
-                <p id="dateDisplay" class="text-blue-100 text-sm opacity-90 mt-1"></p>
-            </div>
-            <button onclick="toggleSettings()" class="p-2 bg-white/20 hover:bg-white/30 rounded-xl transition-colors backdrop-blur-sm">
-                <i data-lucide="settings" class="w-6 h-6 text-white"></i>
-            </button>
-        </div>
-
-        <!-- Dashboard -->
-        <div class="p-8 flex flex-col items-center justify-center relative">
-            
-            <!-- Progress Circle -->
-            <div class="relative w-64 h-64 mb-6 group cursor-pointer active:scale-95 transition-transform" onclick="addWater(250)">
-                <!-- Border Ring -->
-                <div class="absolute inset-0 rounded-full border-8 border-slate-100 bg-slate-50 shadow-inner z-0"></div>
-                
-                <!-- Liquid Mask -->
-                <div class="absolute inset-0 rounded-full overflow-hidden border-8 border-transparent z-10">
-                    <div id="waterLevel" class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-blue-600 to-cyan-300 transition-all duration-1000 ease-in-out opacity-80" style="height: 0%">
-                        <!-- Wave Decoration -->
-                        <div class="absolute top-0 left-0 w-[200%] h-4 bg-white/30 wave-anim" style="margin-top: -2px;"></div>
-                    </div>
-                </div>
-
-                <!-- Text Overlay -->
-                <div class="absolute inset-0 flex flex-col items-center justify-center z-20 text-slate-700 pointer-events-none">
-                    <span id="percentageDisplay" class="text-5xl font-bold tabular-nums text-slate-800 drop-shadow-sm">0%</span>
-                    <span class="text-sm font-medium text-slate-500 mt-1 uppercase tracking-wider">Hydrated</span>
-                    <div id="amountDisplay" class="mt-2 text-xs font-mono bg-white/80 px-2 py-1 rounded-full backdrop-blur-sm shadow-sm border border-slate-100">
-                        0 / 2500 ml
-                    </div>
-                </div>
-            </div>
-
-            <!-- Stats -->
-            <div class="grid grid-cols-2 gap-4 w-full mb-8">
-                <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col items-center text-center">
-                    <span class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-1">Remaining</span>
-                    <span id="remainingDisplay" class="text-xl font-bold text-slate-700">2500ml</span>
-                </div>
-                <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col items-center text-center">
-                    <span class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-1">Next Goal</span>
-                    <span id="nextGoalDisplay" class="text-xl font-bold text-slate-700">Paused</span>
-                </div>
-            </div>
-
-            <!-- Controls -->
-            <div class="flex flex-col gap-4 w-full">
-                <div class="flex gap-3 justify-center">
-                    <button onclick="addWater(150)" class="flex-1 py-3 px-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold transition-colors flex items-center justify-center gap-1 border border-blue-100 text-sm sm:text-base">
-                        <i data-lucide="plus" class="w-4 h-4"></i> 150ml
-                    </button>
-                    <button onclick="addWater(250)" class="flex-1 py-3 px-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 transition-all hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-1 text-sm sm:text-base">
-                        <i data-lucide="plus" class="w-4 h-4"></i> 250ml
-                    </button>
-                    <button onclick="addWater(500)" class="flex-1 py-3 px-2 rounded-xl bg-cyan-100 hover:bg-cyan-200 text-cyan-700 font-bold transition-colors flex items-center justify-center gap-1 border border-cyan-200 text-sm sm:text-base">
-                        <i data-lucide="plus" class="w-4 h-4"></i> 500ml
-                    </button>
-                </div>
-                
-                <button id="reminderBtn" onclick="toggleTimer()" class="w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border-2 border-blue-500 bg-blue-500 text-white shadow-md hover:bg-blue-600">
-                    <i data-lucide="bell" class="w-5 h-5 animate-bounce"></i> Start Reminders
-                </button>
-            </div>
-        </div>
-
-        <div class="bg-slate-50 p-4 text-center text-xs text-slate-400 border-t border-slate-100">
-            <p id="footerMsg">Reminders are currently paused.</p>
-        </div>
-    </div>
-
-    <script>
-        // --- State Management ---
-        const state = {
-            currentAmount: 0,
-            dailyGoal: 2500,
-            reminderInterval: 60, // minutes
-            isReminderActive: false,
-            lastDrinkTime: Date.now(),
-            soundEnabled: true,
-            lastDate: new Date().toDateString()
-        };
-
-        let timerInterval = null;
-
-        // --- Init ---
-        function init() {
-            // Load from localStorage
-            const savedData = localStorage.getItem('hydrateData');
-            if (savedData) {
-                const parsed = JSON.parse(savedData);
-                const today = new Date().toDateString();
-                
-                if (parsed.lastDate !== today) {
-                    state.currentAmount = 0;
-                    state.lastDrinkTime = Date.now();
-                    state.lastDate = today;
-                } else {
-                    state.currentAmount = parsed.currentAmount || 0;
-                    state.lastDrinkTime = parsed.lastDrinkTime || Date.now();
-                }
-                state.dailyGoal = parsed.dailyGoal || 2500;
-                state.reminderInterval = parsed.reminderInterval || 60;
-                state.soundEnabled = parsed.soundEnabled ?? true;
-            }
-
-            // Set Date Display
-            document.getElementById('dateDisplay').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-
-            // Initialize Icons
-            lucide.createIcons();
-
-            // Setup Listeners for Inputs
-            document.getElementById('goalInput').value = state.dailyGoal;
-            document.getElementById('goalInput').addEventListener('input', (e) => {
-                state.dailyGoal = Number(e.target.value);
-                saveState();
-                render();
-            });
-
-            document.getElementById('intervalInput').value = state.reminderInterval;
-            document.getElementById('intervalInput').addEventListener('input', (e) => {
-                state.reminderInterval = Number(e.target.value);
-                saveState();
-                render();
-            });
-
-            // Start Timer Loop
-            startTimerCheck();
-
-            render();
-        }
-
-        // --- Core Logic ---
-        function saveState() {
-            localStorage.setItem('hydrateData', JSON.stringify({
-                ...state,
-                lastDate: new Date().toDateString()
-            }));
-        }
-
-        function addWater(amount) {
-            const oldAmount = state.currentAmount;
-            state.currentAmount = Math.min(state.currentAmount + amount, state.dailyGoal * 1.5);
-            state.lastDrinkTime = Date.now();
-            
-            // Celebration Check
-            if (oldAmount < state.dailyGoal && state.currentAmount >= state.dailyGoal) {
-                showCelebration();
-            }
-
-            closeReminder();
-            saveState();
-            render();
-        }
-
-        function resetDay() {
-            if (confirm("Reset today's progress?")) {
-                state.currentAmount = 0;
-                toggleSettings(); // Close modal
-                saveState();
-                render();
-            }
-        }
-
-        // --- Timer & Notifications ---
-        function toggleTimer() {
-            if (!state.isReminderActive) {
-                // Check permissions
-                if ('Notification' in window && Notification.permission !== 'granted') {
-                    Notification.requestPermission();
-                }
-                state.isReminderActive = true;
-                state.lastDrinkTime = Date.now(); // Reset timer on start
-            } else {
-                state.isReminderActive = false;
-            }
-            saveState();
-            render();
-        }
-
-        function startTimerCheck() {
-            if (timerInterval) clearInterval(timerInterval);
-            timerInterval = setInterval(() => {
-                if (!state.isReminderActive) return;
-
-                const now = Date.now();
-                const minsPassed = Math.floor((now - state.lastDrinkTime) / 1000 / 60);
-
-                if (minsPassed >= state.reminderInterval) {
-                    triggerReminder();
-                }
-                
-                // Update "Next Goal" text dynamically if needed, 
-                // but we handle that in render mostly.
-            }, 10000); // Check every 10 seconds
-        }
-
-        function triggerReminder() {
-            // Prevent spamming if modal is already open
-            if (!document.getElementById('reminderModal').classList.contains('hidden')) return;
-
-            // 1. Sound
-            if (state.soundEnabled) {
-                const audio = document.getElementById('notificationSound');
-                audio.play().catch(e => console.log("Audio play blocked", e));
-            }
-
-            // 2. Browser Notification
-            if (Notification.permission === 'granted') {
-                new Notification("Time to Hydrate!", {
-                    body: `It's been ${state.reminderInterval} minutes since your last sip.`,
-                    icon: "https://cdn-icons-png.flaticon.com/512/3105/3105807.png"
-                });
-            }
-
-            // 3. Modal
-            document.getElementById('reminderModal').classList.remove('hidden');
-        }
-
-        function closeReminder() {
-            document.getElementById('reminderModal').classList.add('hidden');
-            // Reset drink time only if they drank? 
-            // Actually, we usually only reset if they add water, but for UI sake, 
-            // if they dismiss, we might snooze? 
-            // For this simple version, we'll just hide and let timer run (it will trigger again in 10s if logic isn't careful).
-            // Correction: To avoid immediate re-trigger, let's bump the lastDrinkTime slightly or just rely on the user adding water.
-            // If they click "Later", we'll snooze for 10 mins (simulated by updating lastDrinkTime partially).
-            // But simplify: Just hide. The loop checks diff. If diff still > interval, it triggers again in 10s.
-            // Let's force a snooze.
-            state.lastDrinkTime = Date.now() - ((state.reminderInterval - 10) * 60 * 1000); // Set time so 10 mins remain
-            saveState(); 
-        }
-
-        function toggleSound() {
-            state.soundEnabled = !state.soundEnabled;
-            saveState();
-            render();
-        }
-
-        // --- UI Rendering ---
-        function render() {
-            // Calcs
-            const percentage = Math.min((state.currentAmount / state.dailyGoal) * 100, 100);
-            const remaining = Math.max(state.dailyGoal - state.currentAmount, 0);
-
-            // Update DOM Elements
-            document.getElementById('waterLevel').style.height = `${percentage}%`;
-            document.getElementById('percentageDisplay').textContent = `${Math.round(percentage)}%`;
-            document.getElementById('amountDisplay').textContent = `${state.currentAmount} / ${state.dailyGoal} ml`;
-            document.getElementById('remainingDisplay').textContent = `${remaining}ml`;
-            
-            // Input Values
-            document.getElementById('goalValue').textContent = state.dailyGoal;
-            document.getElementById('intervalValue').textContent = state.reminderInterval;
-
-            // Timer Button State
-            const btn = document.getElementById('reminderBtn');
-            const footer = document.getElementById('footerMsg');
-            const nextGoal = document.getElementById('nextGoalDisplay');
-
-            if (state.isReminderActive) {
-                btn.className = "w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border-2 border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600";
-                btn.innerHTML = `<i data-lucide="bell-off" class="w-5 h-5"></i> Pause Reminders`;
-                footer.textContent = "Keep this tab open for sound notifications.";
-                
-                // Next goal text
-                nextGoal.innerHTML = `<span class="text-blue-600">${state.reminderInterval}m</span>`;
-            } else {
-                btn.className = "w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border-2 border-blue-500 bg-blue-500 text-white shadow-md hover:bg-blue-600";
-                btn.innerHTML = `<i data-lucide="bell" class="w-5 h-5 animate-bounce"></i> Start Reminders`;
-                footer.textContent = "Reminders are currently paused.";
-                nextGoal.innerHTML = `<span class="text-orange-400">Paused</span>`;
-            }
-
-            // Sound Icon
-            const soundBtn = document.getElementById('soundToggleBtn');
-            if (state.soundEnabled) {
-                soundBtn.className = "p-2 rounded-full transition-colors bg-blue-100 text-blue-600";
-                soundBtn.innerHTML = `<i data-lucide="volume-2" class="w-5 h-5"></i>`;
-            } else {
-                soundBtn.className = "p-2 rounded-full transition-colors bg-slate-200 text-slate-400";
-                soundBtn.innerHTML = `<i data-lucide="volume-x" class="w-5 h-5"></i>`;
-            }
-
-            // Re-render icons since we changed HTML content
-            lucide.createIcons();
-        }
-
-        // --- Modals ---
-        function toggleSettings() {
-            const modal = document.getElementById('settingsModal');
-            if (modal.classList.contains('hidden')) {
-                modal.classList.remove('hidden');
-            } else {
-                modal.classList.add('hidden');
-            }
-        }
-
-        function showCelebration() {
-            const overlay = document.getElementById('celebrationOverlay');
-            overlay.classList.remove('hidden');
-            
-            // Play success sound (reusing notification sound or specific one)
-            if (state.soundEnabled) {
-                // Optional: Play a different sound here if desired
-                // document.getElementById('notificationSound').play();
-            }
-
-            setTimeout(() => {
-                overlay.classList.add('hidden');
-            }, 4000);
-        }
-
-        // Run Init
-        window.addEventListener('DOMContentLoaded', init);
-
-    </script>
+  <script src="./app.js"></script>
 </body>
 </html>
-
